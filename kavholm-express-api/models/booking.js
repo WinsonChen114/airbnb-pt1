@@ -2,6 +2,54 @@ const db = require("../db")
 const { BadRequestError, NotFoundError } = require("../utils/errors")
 
 class Booking {
+  static async createBooking(newBooking, listing, user) {
+    const requiredFields = ["startDate", "endDate"]
+    requiredFields.forEach((field) => {
+      if (!newBooking?.hasOwnProperty(field)) {
+        throw new BadRequestError(`Missing required field - ${field} - in request body.`)
+      }
+    })
+
+    const paymentMethod = newBooking.paymentMethod || "card"
+    const guests = newBooking.guests || 1
+    const totalDays = ((newBooking.endDate - newBooking.startDate)/1000/60/60/24) + 1
+    const totalAmount = totalDays * listing.totalAmount
+    const results = await db.query(
+      `
+      INSERT INTO bookings (
+        payment_method,
+        start_date,
+        end_date,
+        guests,
+        total_cost,
+        listing_id,
+        user_id
+      )
+      VALUES ($1, $2, $3, $4, CEIL($5), $6, (SELECT id FROM users WHERE username = $7))
+      RETURNING id,
+                start_date AS "startDate",
+                end_date AS "endDate",
+                guests,
+                total_cost AS "totalCost",
+                listing_id AS "listingId",
+                $1 AS "paymentMethod",
+                user_id AS "userId",
+                $7 AS "username",
+                (SELECT username FROM users WHERE id = (SELECT user_id FROM listings WHERE id = $6)) AS "hostUsername",
+                created_at AS "createdAt"
+      `,
+      [ paymentMethod,
+        newBooking.startDate,
+        newBooking.endDate,
+        guests,
+        Number(totalAmount),
+        listing.id,
+        user.username
+      ]
+    )
+
+    return results.rows[0]
+  }
   static async fetchBookingById(bookingId) {
     // fetch a single booking by its id
     const results = await db.query(
